@@ -78,6 +78,7 @@ Vagrant.configure(2) do |config|
 
   config.vm.define :master do |master|
     master.vm.box = "precise64"
+    master.vm.box_url = "http://files.vagrantup.com/precise64.box"
     master.vm.host_name = "master"
     master.vm.network :private_network, ip: "192.168.2.2"
     master.vm.network :public_network, :bridge => "en0"
@@ -105,6 +106,7 @@ Vagrant.configure(2) do |config|
     id = "minion#{i}"
     config.vm.define id do |minion|
       minion.vm.box = "precise64"
+      minion.vm.box_url = "http://files.vagrantup.com/precise64.box"
       minion.vm.host_name = "minion#{i}"
       minion.vm.network :private_network, ip: "192.168.2.1#{i}"
       minion.vm.network :public_network, :bridge => "en0"
