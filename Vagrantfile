@@ -5,6 +5,7 @@
 # configures the configuration version (we support older styles for
 # backwards compatibility). Please don't change it unless you know what
 # you're doing.
+
 Vagrant.configure(2) do |config|
   # The most common configuration options are documented and commented below.
   # For a complete reference, please see the online documentation at
@@ -70,11 +71,22 @@ Vagrant.configure(2) do |config|
 
 
   # kln
+  if !Vagrant.has_plugin?("sshkey")
+    puts 'Sorry, we need just one more dependency'
+    puts "Need to install the ruby sshkey gem inside vagrant"
+    puts "vagrant plugin install sshkey"
+    exit
+  end
+
+  vagrant_dir = File.expand_path(File.dirname(__FILE__))
+  
+  require 'yaml'
+  require 'sshkey'
+
   config.vm.provider "virtualbox" do |v|
     v.customize ["modifyvm", :id, "--memory", 256]
     v.customize ["modifyvm", :id, "--cpus", 1]
   end
-  # config.vm.provision :shell, :path => ""
 
   config.vm.define :master do |master|
     master.vm.box = "precise64"
@@ -83,7 +95,6 @@ Vagrant.configure(2) do |config|
     master.vm.network :private_network, ip: "192.168.2.2"
     master.vm.network :public_network, :bridge => "en0"
     master.vm.synced_folder "./roots/", "/srv/"
-    # master.vm.synced_folder "./keys/", "/etc/salt/keys"
     
     master.vm.provision :salt do |salt|
       salt.install_master = true
@@ -101,16 +112,56 @@ Vagrant.configure(2) do |config|
       salt.temp_config_dir = "/tmp"
     end
   end
-  
-  3.times do |i|
+
+  minions = 3
+  minions.times do |i|
     id = "minion#{i}"
+    ip = "192.168.2.1#{i}"
+    
+    pillar = YAML.load_file( vagrant_dir + '/roots/pillar/tinc.sls')
+
+    key = SSHKey.generate
+    if id == 'minion0'
+      ct = nil
+    else
+      ct = 'minion0'
+    end
+    
+    if !pillar['tinc']['rnet']
+      pillar['tinc']['rnet'] = {}
+    end
+    if !pillar['tinc']['rnet'].key?(id)
+      pillar['tinc']['rnet'][id] =  { 'RSAPublicKey' => key.public_key,
+                                      'RSAPrivateKey' => key.private_key,
+                                      'host_config' => { 'Address' => ip,
+                                                         'Subnet' => "192.168.3.1#{i}/32" },
+                                      'tinc_config' => { 'Name' => id,
+                                                         'ConnectTo' => ct,
+                                                         'Interface' => 'tun0',
+                                                         'AddressFamily' => 'ipv4' },
+                                      'tinc_up' => "ifconfig $INTERFACE 192.168.3.1#{i} netmask 255.255.255.0",
+                                      'tinc_down' => 'ifconfig $INTERFACE down'}
+      
+      File.open(vagrant_dir + '/roots/pillar/tinc.sls','w') do |f| 
+        f.write pillar.to_yaml
+      end
+    end
+    
+    minion_conf = { 'master' => '192.168.2.2',
+                    'id' => id,
+                    'file_client' => 'remote' }
+    File.open(vagrant_dir + '/' + id,'w') do |f|
+      f.write minion_conf.to_yaml
+    end
+    
+    # exit
+    
     config.vm.define id do |minion|
       minion.vm.box = "precise64"
       minion.vm.box_url = "http://files.vagrantup.com/precise64.box"
       minion.vm.host_name = "minion#{i}"
-      minion.vm.network :private_network, ip: "192.168.2.1#{i}"
+      minion.vm.network :private_network, ip: ip
       minion.vm.network :public_network, :bridge => "en0"
-      # minion.vm.synced_folder "./keys/", "/etc/salt/keys"
       
       minion.vm.provision :salt do |salt|
         salt.run_highstate = true
